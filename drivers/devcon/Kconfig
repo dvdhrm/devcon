@@ -1,0 +1,9 @@
+config DEVCON
+	tristate "Developer Console"
+	depends on DEBUG_KERNEL
+	depends on TTY && !VT
+	depends on DRM
+	help
+	  Foobar.
+
+	  If unsure, say N.
