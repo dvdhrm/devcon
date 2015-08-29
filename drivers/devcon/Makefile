@@ -4,6 +4,7 @@
 #
 
 devcon-y := \
-	main.o
+	main.o \
+	tty.o
 
 obj-$(CONFIG_DEVCON) += devcon.o

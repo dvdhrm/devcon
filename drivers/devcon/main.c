@@ -10,15 +10,25 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/init.h>
 #include <linux/module.h>
+#include "tty.h"
 
 static int __init devcon_init(void)
 {
+	int ret;
+
+	ret = devcon_tty_init();
+	if (ret < 0) {
+		pr_err("cannot initialize TTY subsystem\n");
+		return ret;
+	}
+
 	pr_info("loaded\n");
 	return 0;
 }
 
 static void __exit devcon_exit(void)
 {
+	devcon_tty_destroy();
 	pr_info("unloaded\n");
 }
 
