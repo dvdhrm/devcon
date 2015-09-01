@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 David Herrmann <dh.herrmann@gmail.com>
+ * Copyright (C) 2015 David Herrmann <dh.herrmann@gmail.com>
  *
  * devcon is free software; you can redistribute it and/or modify it under
  * the terms of the GNU Lesser General Public License as published by the
@@ -50,6 +50,8 @@ struct devcon_tty {
 	struct tty_port port;
 	struct tty_struct *tty;
 	unsigned int index;
+	devcon_tty_write_fn write_fn;
+	void *userdata;
 	bool added : 1;
 	bool removed : 1;
 };
@@ -111,28 +113,28 @@ static void devcon_tops_hangup(struct tty_struct *t)
 	tty_port_hangup(&tty->port);
 }
 
-static int devcon_tops_resize(struct tty_struct *tty, struct winsize *ws)
+static int devcon_tops_resize(struct tty_struct *t, struct winsize *ws)
 {
 	return -EINVAL;
 }
 
-static void devcon_tops_stop(struct tty_struct *tty)
+static void devcon_tops_stop(struct tty_struct *t)
 {
 }
 
-static void devcon_tops_start(struct tty_struct *tty)
+static void devcon_tops_start(struct tty_struct *t)
 {
 }
 
-static void devcon_tops_throttle(struct tty_struct *tty)
+static void devcon_tops_throttle(struct tty_struct *t)
 {
 }
 
-static void devcon_tops_unthrottle(struct tty_struct *tty)
+static void devcon_tops_unthrottle(struct tty_struct *t)
 {
 }
 
-static int devcon_tops_ioctl(struct tty_struct *tty,
+static int devcon_tops_ioctl(struct tty_struct *t,
 			     unsigned int cmd,
 			     unsigned long arg)
 {
@@ -140,32 +142,37 @@ static int devcon_tops_ioctl(struct tty_struct *tty,
 }
 
 #ifdef CONFIG_COMPAT
-static long devcon_tops_compat_ioctl(struct tty_struct *tty,
+static long devcon_tops_compat_ioctl(struct tty_struct *t,
 				     unsigned int cmd,
 				     unsigned long arg)
 {
-	return devcon_tops_ioctl(tty, cmd, arg);
+	return devcon_tops_ioctl(t, cmd, arg);
 }
 #endif
 
-static int devcon_tops_write(struct tty_struct *tty,
+static int devcon_tops_write(struct tty_struct *t,
 			     const unsigned char *data,
 			     int size)
 {
+	struct devcon_tty *tty = t->driver_data;
+
 	if (WARN_ON_ONCE(in_interrupt() || in_atomic()))
 		return size;
 	if (size == 0)
 		return 0;
 
+	if (tty->write_fn)
+		tty->write_fn(tty, tty->userdata, (const char *)data, size);
+
 	return size;
 }
 
-static int devcon_tops_write_room(struct tty_struct *tty)
+static int devcon_tops_write_room(struct tty_struct *t)
 {
-	return tty->stopped ? 0 : S16_MAX;
+	return t->stopped ? 0 : S16_MAX;
 }
 
-static int devcon_tops_chars_in_buffer(struct tty_struct *tty)
+static int devcon_tops_chars_in_buffer(struct tty_struct *t)
 {
 	return 0;
 }
@@ -195,7 +202,6 @@ static void devcon_pops_destruct(struct tty_port *port)
 	struct devcon_tty *tty = container_of(port, struct devcon_tty, port);
 
 	WARN_ON(tty->added && !tty->removed);
-	WARN_ON(tty->index == 0);
 
 	mutex_lock(&devcon_tty_lock);
 	idr_remove(&devcon_tty_idr, tty->index);
@@ -211,6 +217,8 @@ static const struct tty_port_operations devcon_tty_port_ops = {
 /**
  * devcon_tty_new() - Allocate new TTY
  * @out:	output variable for new TTY reference
+ * @write_fn:	callback for incoming data
+ * @userdata:	userdata pointer
  *
  * This allocates a fresh new independent TTY object (similar to opening a PTY
  * master). Nobody but the caller owns a reference to it. It is not linked into
@@ -218,7 +226,9 @@ static const struct tty_port_operations devcon_tty_port_ops = {
  *
  * Return: 0 on success, negative error code on failure.
  */
-int devcon_tty_new(struct devcon_tty **out)
+int devcon_tty_new(struct devcon_tty **out,
+		   devcon_tty_write_fn write_fn,
+		   void *userdata)
 {
 	struct devcon_tty *tty;
 	int index;
@@ -237,7 +247,10 @@ int devcon_tty_new(struct devcon_tty **out)
 	}
 
 	tty->index = index;
+	tty->write_fn = write_fn;
+	tty->userdata = userdata;
 	tty_port_init(&tty->port);
+	tty->port.ops = &devcon_tty_port_ops;
 
 	*out = tty;
 	return 0;
@@ -378,6 +391,16 @@ void devcon_tty_remove(struct devcon_tty *tty)
 
 	tty->removed = true;
 	devcon_tty_unref(tty);
+}
+
+void devcon_tty_write(struct devcon_tty *tty, const u8 *data, size_t size)
+{
+	if (WARN_ON(tty->removed || !tty->added))
+		return;
+
+	for ( ; size > 0; --size)
+		tty_insert_flip_char(&tty->port, *data++, 0);
+	tty_schedule_flip(&tty->port);
 }
 
 /**

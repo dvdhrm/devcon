@@ -4,7 +4,16 @@
 #
 
 devcon-y := \
+	charset.o \
+	input.o \
+	keyboard.o \
 	main.o \
-	tty.o
+	page.o \
+	parser.o \
+	screen.o \
+	terminal.o \
+	tty.o \
+	video.o \
+	wcwidth.o
 
 obj-$(CONFIG_DEVCON) += devcon.o

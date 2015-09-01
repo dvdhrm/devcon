@@ -1,8 +1,7 @@
 config DEVCON
 	tristate "Developer Console"
-	depends on DEBUG_KERNEL
-	depends on TTY && !VT
-	depends on DRM
+	depends on DRM && TTY && INPUT
+	depends on FONT_SUPPORT && FONT_8x16
 	help
 	  Foobar.
 
